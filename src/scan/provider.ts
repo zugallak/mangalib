@@ -1,14 +1,17 @@
 import "server-only";
 
-import type { ScanProvider } from "@/domain/scan";
-import { stubScanProvider } from "@/scan/stub-provider";
+import type { MangaScanResult, ScanInput } from "@/domain/scan";
+import { runScan } from "@/scan/orchestrator";
+import { geminiScanProvider } from "@/scan/gemini-provider";
+import { openaiScanProvider } from "@/scan/openai-provider";
+import { consoleScanLogger } from "@/scan/logger";
 
-/**
- * Provider registry / selection point.
- *
- * For the MVP this always returns the stub (no real AI). When a real provider
- * is added, wire it here (e.g. keyed off an env var) — callers never change.
- */
-export function getScanProvider(): ScanProvider {
-  return stubScanProvider;
+/** Public scan entry point wired to the real providers (Gemini → OpenAI). */
+export function scanImage(input: ScanInput): Promise<MangaScanResult> {
+  return runScan(input, {
+    primary: geminiScanProvider,
+    fallback: openaiScanProvider,
+    logger: consoleScanLogger,
+    now: () => Date.now(),
+  });
 }

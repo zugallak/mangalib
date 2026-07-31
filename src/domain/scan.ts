@@ -2,64 +2,79 @@
  * Scan domain: the abstraction between "an image of a bookshelf" and
  * "structured manga detections the user can review".
  *
- * This layer is deliberately provider-agnostic. A future OpenAI / Gemini /
- * Claude implementation must satisfy `ScanProvider` without the rest of the
- * app knowing which model produced the results.
+ * Provider-agnostic. Gemini / OpenAI implementations satisfy `ScanProvider`
+ * without the rest of the app knowing which model produced the results.
  *
  * Hard rule enforced by the workflow (not this type): detections are ALWAYS
  * reviewed and validated by the user before anything is written to their
  * library.
  */
 
+/** Which backend produced a scan result (useful for debugging / subtle UI). */
+export type ScanProviderName = "gemini" | "openai";
+
 /**
- * A single manga volume detected in a photo. Everything the model is unsure
- * about is nullable so the review screen can flag it for correction.
+ * A single manga volume as returned by a provider, BEFORE app-side
+ * normalization. No id yet — ids are assigned during normalization so the
+ * review UI has stable keys.
  */
-export interface MangaDetection {
-  /** Best-guess series title, e.g. "Bleach". */
+export interface RawMangaDetection {
   seriesTitle: string;
   /** Detected volume number, or null when unreadable / ambiguous. */
   volumeNumber: number | null;
   /** Publisher / imprint when identifiable (logo, edition styling). */
   publisher?: string | null;
+  /** Free-text edition hint (e.g. "Perfect Edition", "Omnibus"). */
+  editionHint?: string | null;
   /** Model confidence in [0, 1]. */
   confidence: number;
-  /** Raw text/label the model read off the spine, for debugging & review. */
-  rawLabel?: string;
-  /**
-   * Optional sequence-based suggestion. When surrounding volumes imply a
-   * likely number for an unreadable spine (…21, 22, ?, 24 → 23), the provider
-   * MAY surface it here. It is a suggestion only and must never be silently
-   * treated as fact — the review UI presents it as such.
-   */
-  suggestedVolumeNumber?: number | null;
-}
-
-export interface ScanRequest {
-  /** The bookshelf image to analyse. */
-  image: Blob | ArrayBuffer;
-  /** Optional MIME type hint (e.g. "image/jpeg"). */
-  mimeType?: string;
-}
-
-export interface ScanResult {
-  detections: MangaDetection[];
-  /** Identifier of the provider that produced the result. */
-  provider: string;
+  /** Raw text the model read off the spine, for debugging & review. */
+  rawLabel?: string | null;
+  /** Model notes, e.g. "volume inferred from surrounding sequence". */
+  notes?: string | null;
 }
 
 /**
- * The single seam every recognition backend implements. Swapping providers
- * means adding one file — no change to the review, matching or library code.
+ * A normalized detection presented to the user for review. Same shape as the
+ * raw one plus a stable `id`.
  */
-export interface ScanProvider {
-  readonly name: string;
-  analyze(request: ScanRequest): Promise<ScanResult>;
+export interface MangaDetection extends RawMangaDetection {
+  id: string;
 }
 
-/** Confidence below this should be visually flagged for user attention. */
-export const LOW_CONFIDENCE_THRESHOLD = 0.75;
+/** The single app-level scan result. UI never sees provider-specific shapes. */
+export interface MangaScanResult {
+  provider: ScanProviderName;
+  detections: MangaDetection[];
+}
 
-export function isLowConfidence(detection: MangaDetection): boolean {
-  return detection.confidence < LOW_CONFIDENCE_THRESHOLD;
+/** Bytes + mime handed to a provider. */
+export interface ScanInput {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
+/**
+ * The single seam every recognition backend implements. Providers return raw
+ * detections (or throw a ScanTechnicalError); normalization and fallback are
+ * handled by the orchestrator, not here.
+ */
+export interface ScanProvider {
+  readonly name: ScanProviderName;
+  analyze(input: ScanInput): Promise<RawMangaDetection[]>;
+}
+
+// ---------------------------------------------------------------------------
+// Confidence buckets — one consistent meaning across providers (range 0..1).
+// ---------------------------------------------------------------------------
+
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+export const HIGH_CONFIDENCE_THRESHOLD = 0.85;
+export const MEDIUM_CONFIDENCE_THRESHOLD = 0.6;
+
+export function confidenceLevel(confidence: number): ConfidenceLevel {
+  if (confidence >= HIGH_CONFIDENCE_THRESHOLD) return "high";
+  if (confidence >= MEDIUM_CONFIDENCE_THRESHOLD) return "medium";
+  return "low";
 }

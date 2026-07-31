@@ -98,7 +98,37 @@ npm run gen:types   # supabase gen types typescript --linked --schema public > �
 
 The service-role key is **not** used for type generation.
 
+## Bookshelf scan (AI)
+
+Photograph a shelf → the server analyzes it → you review/correct detections →
+confirm → only new volumes are added. Images are **analyzed then discarded** —
+never stored, never logged.
+
+- **Gemini is the primary scanner; OpenAI is the technical fallback.** Fallback
+  fires only on a technical failure of Gemini (network, timeout, rate-limit,
+  invalid/unparseable response) — never merely because confidence is low or some
+  spines went unread. One photo = one Gemini call by default.
+- All provider calls are **server-only**. Required server-side env vars:
+  - `GEMINI_API_KEY`, `OPENAI_API_KEY` (never `NEXT_PUBLIC_`, never sent to the browser)
+  - optional overrides `GEMINI_MODEL` (default `gemini-3.6-flash`) and
+    `OPENAI_MODEL` (default `gpt-4o`)
+- Endpoints (all re-check the Supabase session): `POST /api/scan` (analyze),
+  `POST /api/scan/resolve` (read-only catalog/ownership check for the summary),
+  `POST /api/scan/import` (write — adds only new volumes after confirmation).
+- Library writes happen **only after explicit user confirmation**, through the
+  RLS-aware user client. Catalog rows for new detections are created server-side
+  via the service role (RLS still denies catalog writes to browser clients).
+
+Model note: the default is the pinned stable `gemini-3.6-flash`, chosen for
+reproducibility (the `*-latest` alias can move between versions). Override with
+`GEMINI_MODEL`. Availability can vary per project/API key — during this project's
+integration testing `gemini-2.5-flash` returned 404 for our key, which is why we
+pin a current model and expose the override rather than relying on a fixed
+legacy version.
+
 ## Not implemented yet (by design)
 
-- Real AI scan provider (stubbed behind `ScanProvider`).
-- Manual add UI and scan review UI (data model, types & idempotent writes are in place).
+- Manual add UI (scan is the primary add path for now; data model & idempotent
+  writes support a manual form next).
+- Everything in the iteration's "do not implement yet" list: barcode/ISBN, cover
+  recognition, scan history, permanent image storage, provider settings UI, etc.
