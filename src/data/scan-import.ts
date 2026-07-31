@@ -49,12 +49,13 @@ export async function importValidatedDetections(
 
   // Resolve/create catalog volume ids (service-role, one at a time so failures
   // are attributable). Never uses the service role for ownership.
+  // Publisher is intentionally NOT passed — it must never affect logical
+  // identity (a different AI publisher guess must not create a new volume).
   const volumeIds: string[] = [];
   for (const d of importable) {
     const id = await findOrCreateVolumeId({
       seriesTitle: d.seriesTitle,
       volumeNumber: d.volumeNumber,
-      publisher: d.publisher,
     });
     volumeIds.push(id);
   }

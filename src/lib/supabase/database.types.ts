@@ -31,18 +31,22 @@ export interface Database {
           id: string;
           title: string;
           original_title: string | null;
+          /** App-maintained identity key (seriesMatchKey). NULL until backfilled. */
+          match_key: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           title: string;
           original_title?: string | null;
+          match_key?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           title?: string;
           original_title?: string | null;
+          match_key?: string | null;
           created_at?: string;
         };
         Relationships: [];
@@ -54,6 +58,7 @@ export interface Database {
           publisher: string | null;
           language: string | null;
           edition_name: string | null;
+          total_volumes: number | null;
           created_at: string;
         };
         Insert: {
@@ -62,6 +67,7 @@ export interface Database {
           publisher?: string | null;
           language?: string | null;
           edition_name?: string | null;
+          total_volumes?: number | null;
           created_at?: string;
         };
         Update: {
@@ -70,6 +76,7 @@ export interface Database {
           publisher?: string | null;
           language?: string | null;
           edition_name?: string | null;
+          total_volumes?: number | null;
           created_at?: string;
         };
         Relationships: [

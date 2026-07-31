@@ -19,6 +19,28 @@ export function normalizeTitle(title: string): string {
 }
 
 /**
+ * Series *identity* key for matching. Stricter than normalizeTitle: it removes
+ * ALL non-alphanumeric characters (including internal whitespace) so that
+ * presentation differences collapse to one identity, while genuinely different
+ * titles stay distinct.
+ *
+ *   "XXX Holic" / "XXXHolic" / "xxxHOLiC" / "xxx holic"  \u2192 "xxxholic"
+ *   "xxxHOLiC Rei"                                        \u2192 "xxxholicrei"  (distinct!)
+ *   "X"                                                   \u2192 "x"
+ *
+ * This is ONLY an identity/matching key \u2014 never shown to the user. The catalog
+ * keeps a separate human-readable canonical title. Deliberately exact (no fuzzy
+ * matching) so distinct sequels/subtitles are never merged.
+ */
+export function seriesMatchKey(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ""); // remove ALL non-alphanumerics, incl. spaces
+}
+
+/**
  * Resolution state of a reviewed detection against the shared catalog +
  * the user's ownership.
  *
@@ -76,4 +98,24 @@ export function isImportable(detection: {
   volumeNumber: number | null;
 }): boolean {
   return detection.seriesTitle.trim().length > 0 && detection.volumeNumber !== null;
+}
+
+/**
+ * Pure resolution decision from LOGICAL identity only (series match key +
+ * volume number). Publisher/edition is deliberately NOT an input — it can
+ * never affect the result, which is what makes repeated scans idempotent.
+ *
+ *   incomplete : no title / no volume number
+ *   new        : series+number not in the catalog yet, OR present but unowned
+ *   owned      : present in the catalog and owned by the user
+ */
+export function resolveDetectionStatus(input: {
+  importable: boolean;
+  volumeNumber: number | null;
+  catalogNumbers: ReadonlySet<number> | undefined;
+  ownedNumbers: ReadonlySet<number> | undefined;
+}): ResolutionStatus {
+  if (!input.importable || input.volumeNumber === null) return "incomplete";
+  if (!input.catalogNumbers || !input.catalogNumbers.has(input.volumeNumber)) return "new";
+  return input.ownedNumbers?.has(input.volumeNumber) ? "owned" : "new";
 }

@@ -15,8 +15,9 @@ export default async function SeriesPage({
 
   if (!detail) notFound();
 
-  const { series, volumes, ownedCount, totalCount } = detail;
-  const missingCount = totalCount - ownedCount;
+  const { series, volumes, ownedCount, totalVolumes, isComplete } = detail;
+  const known = totalVolumes !== null;
+  const missingCount = known ? totalVolumes - ownedCount : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -26,15 +27,26 @@ export default async function SeriesPage({
 
       <header>
         <h1 className="text-2xl font-bold">{series.title}</h1>
-        {series.originalTitle && (
-          <p className="text-sm text-muted">{series.originalTitle}</p>
-        )}
         <p className="mt-2 text-sm text-muted">
-          <span className="font-semibold text-foreground">
-            {ownedCount} / {totalCount}
-          </span>{" "}
-          volumes
-          {missingCount > 0 && ` · ${missingCount} missing`}
+          {known ? (
+            <>
+              <span className="font-semibold text-foreground">
+                {ownedCount} / {totalVolumes}
+              </span>{" "}
+              volumes
+              {isComplete ? (
+                <span style={{ color: "var(--owned)" }}> · Complete</span>
+              ) : (
+                missingCount !== null && missingCount > 0 && ` · ${missingCount} missing`
+              )}
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-foreground">{ownedCount}</span>{" "}
+              {ownedCount === 1 ? "volume" : "volumes"} owned
+              <span className="text-muted"> · total unknown</span>
+            </>
+          )}
         </p>
       </header>
 

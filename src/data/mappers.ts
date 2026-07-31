@@ -13,6 +13,7 @@ export interface SeriesRow {
 export interface EditionRow {
   id: string;
   series_id: string;
+  total_volumes?: number | null;
 }
 
 export interface VolumeRow {
@@ -39,6 +40,7 @@ export function toEdition(row: EditionRow & { series_id: string }): Edition {
     publisher: null,
     language: null,
     editionName: null,
+    totalVolumes: row.total_volumes ?? null,
   };
 }
 

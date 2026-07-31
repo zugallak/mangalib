@@ -10,7 +10,8 @@ export default async function HomePage() {
 
   const seriesCount = summaries.length;
   const ownedVolumes = summaries.reduce((sum, s) => sum + s.ownedCount, 0);
-  const missingVolumes = summaries.reduce((sum, s) => sum + s.missingCount, 0);
+  // Only known-total series contribute a meaningful "missing" figure.
+  const missingVolumes = summaries.reduce((sum, s) => sum + (s.missingCount ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-6">

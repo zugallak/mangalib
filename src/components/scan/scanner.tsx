@@ -1,10 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { confidenceLevel, type MangaScanResult, type ScanProviderName } from "@/domain/scan";
-import type { DetectionResolution, ResolutionStatus, ResolutionSummary } from "@/domain/catalog";
+import {
+  seriesMatchKey,
+  type DetectionResolution,
+  type ResolutionStatus,
+  type ResolutionSummary,
+} from "@/domain/catalog";
 import { downscaleImage } from "@/lib/image-client";
 import { isAllowedImageType } from "@/lib/scan-upload";
 
@@ -109,6 +114,17 @@ export function Scanner() {
 
   function removeDetection(id: string) {
     setDetections((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  /** Bulk-edit every detection currently in a group (by member ids). */
+  function updateGroup(memberIds: readonly string[], patch: Partial<EditableDetection>) {
+    const ids = new Set(memberIds);
+    setDetections((prev) => prev.map((d) => (ids.has(d.id) ? { ...d, ...patch } : d)));
+  }
+
+  function removeGroup(memberIds: readonly string[]) {
+    const ids = new Set(memberIds);
+    setDetections((prev) => prev.filter((d) => !ids.has(d.id)));
   }
 
   async function continueToConfirm() {
@@ -221,6 +237,8 @@ export function Scanner() {
           detections={detections}
           onUpdate={updateDetection}
           onRemove={removeDetection}
+          onUpdateGroup={updateGroup}
+          onRemoveGroup={removeGroup}
           onContinue={continueToConfirm}
           onRescan={reset}
         />
@@ -306,11 +324,41 @@ function CaptureStage({
   );
 }
 
+interface DetectionGroup {
+  key: string;
+  title: string;
+  publisher: string | null;
+  members: EditableDetection[];
+  memberIds: string[];
+  minConfidence: number;
+}
+
+function groupDetections(detections: EditableDetection[]): DetectionGroup[] {
+  const map = new Map<string, EditableDetection[]>();
+  for (const d of detections) {
+    // Empty title → its own group so it stays visible/editable.
+    const key = seriesMatchKey(d.seriesTitle) || `untitled:${d.id}`;
+    const arr = map.get(key) ?? [];
+    arr.push(d);
+    map.set(key, arr);
+  }
+  return [...map.entries()].map(([key, members]) => ({
+    key,
+    title: members[0].seriesTitle,
+    publisher: members[0].publisher,
+    members,
+    memberIds: members.map((m) => m.id),
+    minConfidence: Math.min(...members.map((m) => m.confidence)),
+  }));
+}
+
 function ReviewStage({
   provider,
   detections,
   onUpdate,
   onRemove,
+  onUpdateGroup,
+  onRemoveGroup,
   onContinue,
   onRescan,
 }: {
@@ -318,9 +366,13 @@ function ReviewStage({
   detections: EditableDetection[];
   onUpdate: (id: string, patch: Partial<EditableDetection>) => void;
   onRemove: (id: string) => void;
+  onUpdateGroup: (memberIds: readonly string[], patch: Partial<EditableDetection>) => void;
+  onRemoveGroup: (memberIds: readonly string[]) => void;
   onContinue: () => void;
   onRescan: () => void;
 }) {
+  const groups = useMemo(() => groupDetections(detections), [detections]);
+
   if (detections.length === 0) {
     return (
       <div className="flex flex-col gap-4">
@@ -341,14 +393,27 @@ function ReviewStage({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Review {detections.length} detections</h2>
+        <h2 className="text-lg font-semibold">
+          Review {groups.length} {groups.length === 1 ? "series" : "series"} · {detections.length}{" "}
+          volumes
+        </h2>
         {provider && <span className="text-xs text-muted">{PROVIDER_LABEL[provider]}</span>}
       </div>
-      <p className="text-sm text-muted">Correct anything wrong, then continue.</p>
+      <p className="text-sm text-muted">
+        Grouped by series. Fix a title once for the whole group, or expand to correct individual
+        volumes.
+      </p>
 
       <ul className="flex flex-col gap-3">
-        {detections.map((d) => (
-          <DetectionRow key={d.id} detection={d} onUpdate={onUpdate} onRemove={onRemove} />
+        {groups.map((group) => (
+          <SeriesGroupCard
+            key={group.key}
+            group={group}
+            onUpdate={onUpdate}
+            onRemove={onRemove}
+            onUpdateGroup={onUpdateGroup}
+            onRemoveGroup={onRemoveGroup}
+          />
         ))}
       </ul>
 
@@ -366,7 +431,111 @@ function ReviewStage({
   );
 }
 
-function DetectionRow({
+function SeriesGroupCard({
+  group,
+  onUpdate,
+  onRemove,
+  onUpdateGroup,
+  onRemoveGroup,
+}: {
+  group: DetectionGroup;
+  onUpdate: (id: string, patch: Partial<EditableDetection>) => void;
+  onRemove: (id: string) => void;
+  onUpdateGroup: (memberIds: readonly string[], patch: Partial<EditableDetection>) => void;
+  onRemoveGroup: (memberIds: readonly string[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const level = confidenceLevel(group.minConfidence);
+  const levelColor = level === "high" ? "var(--owned)" : level === "medium" ? "#d97706" : "#dc2626";
+  const sorted = [...group.members].sort(
+    (a, b) => (a.volumeNumber ?? Infinity) - (b.volumeNumber ?? Infinity),
+  );
+
+  return (
+    <li className="rounded-xl border border-border bg-surface p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          value={group.title}
+          onChange={(e) => onUpdateGroup(group.memberIds, { seriesTitle: e.target.value })}
+          placeholder="Series"
+          aria-label="Series title"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base font-semibold outline-none focus:border-accent"
+        />
+        <button
+          type="button"
+          onClick={() => onRemoveGroup(group.memberIds)}
+          className="shrink-0 text-xs text-muted active:opacity-70"
+        >
+          Remove all
+        </button>
+      </div>
+
+      <div className="mb-2 flex items-center gap-3 text-xs text-muted">
+        <span className="flex items-center gap-1.5" style={{ color: levelColor }}>
+          <span
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ backgroundColor: levelColor }}
+          />
+          {level} confidence
+        </span>
+        <span>
+          {group.members.length} {group.members.length === 1 ? "volume" : "volumes"}
+        </span>
+      </div>
+
+      {/* Volume chips — inline per-volume number edit + remove. */}
+      <div className="flex flex-wrap gap-2">
+        {sorted.map((d) => (
+          <VolumeChip key={d.id} detection={d} onUpdate={onUpdate} onRemove={onRemove} />
+        ))}
+      </div>
+
+      <input
+        value={group.publisher ?? ""}
+        onChange={(e) =>
+          onUpdateGroup(group.memberIds, { publisher: e.target.value || null })
+        }
+        placeholder="Publisher / edition hint (optional)"
+        aria-label="Publisher"
+        className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+      />
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-2 text-xs text-accent active:opacity-70"
+        style={{ color: "var(--accent)" }}
+      >
+        {expanded ? "Hide individual edits" : "Edit individually (split / move a volume)"}
+      </button>
+
+      {expanded && (
+        <ul className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
+          {sorted.map((d) => (
+            <li key={d.id} className="flex gap-2">
+              <input
+                value={d.seriesTitle}
+                onChange={(e) => onUpdate(d.id, { seriesTitle: e.target.value })}
+                aria-label="Series title for this volume"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <VolumeNumberInput detection={d} onUpdate={onUpdate} />
+              <button
+                type="button"
+                onClick={() => onRemove(d.id)}
+                className="shrink-0 px-2 text-xs text-muted active:opacity-70"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function VolumeChip({
   detection,
   onUpdate,
   onRemove,
@@ -375,63 +544,45 @@ function DetectionRow({
   onUpdate: (id: string, patch: Partial<EditableDetection>) => void;
   onRemove: (id: string) => void;
 }) {
-  const level = confidenceLevel(detection.confidence);
-  const levelColor =
-    level === "high" ? "var(--owned)" : level === "medium" ? "#d97706" : "#dc2626";
-
+  const missing = detection.volumeNumber === null;
   return (
-    <li className="rounded-xl border border-border bg-surface p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs" style={{ color: levelColor }}>
-          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: levelColor }} />
-          {level} confidence
-        </span>
-        <button
-          type="button"
-          onClick={() => onRemove(detection.id)}
-          className="text-xs text-muted active:opacity-70"
-        >
-          Remove
-        </button>
-      </div>
+    <span
+      className="flex items-center gap-1 rounded-lg border px-1.5 py-1"
+      style={{ borderColor: missing ? "#dc2626" : "var(--border)" }}
+    >
+      <VolumeNumberInput detection={detection} onUpdate={onUpdate} />
+      <button
+        type="button"
+        onClick={() => onRemove(detection.id)}
+        aria-label={`Remove volume ${detection.volumeNumber ?? ""}`}
+        className="text-xs text-muted active:opacity-70"
+      >
+        ✕
+      </button>
+    </span>
+  );
+}
 
-      <div className="flex gap-2">
-        <input
-          value={detection.seriesTitle}
-          onChange={(e) => onUpdate(detection.id, { seriesTitle: e.target.value })}
-          placeholder="Series"
-          aria-label="Series title"
-          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base outline-none focus:border-accent"
-        />
-        <input
-          value={detection.volumeNumber ?? ""}
-          onChange={(e) => {
-            const v = e.target.value.trim();
-            const n = v === "" ? null : Number.parseInt(v, 10);
-            onUpdate(detection.id, { volumeNumber: n !== null && Number.isFinite(n) ? n : null });
-          }}
-          inputMode="numeric"
-          placeholder="Vol"
-          aria-label="Volume number"
-          className="w-16 rounded-lg border border-border bg-background px-2 py-2 text-center text-base outline-none focus:border-accent"
-        />
-      </div>
-
-      <input
-        value={detection.publisher ?? ""}
-        onChange={(e) => onUpdate(detection.id, { publisher: e.target.value || null })}
-        placeholder="Publisher / edition (optional)"
-        aria-label="Publisher"
-        className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-      />
-
-      {detection.volumeNumber === null && (
-        <p className="mt-2 text-xs" style={{ color: "#dc2626" }}>
-          Volume number needed to import.
-        </p>
-      )}
-      {detection.notes && <p className="mt-1 text-xs text-muted">{detection.notes}</p>}
-    </li>
+function VolumeNumberInput({
+  detection,
+  onUpdate,
+}: {
+  detection: EditableDetection;
+  onUpdate: (id: string, patch: Partial<EditableDetection>) => void;
+}) {
+  return (
+    <input
+      value={detection.volumeNumber ?? ""}
+      onChange={(e) => {
+        const v = e.target.value.trim();
+        const n = v === "" ? null : Number.parseInt(v, 10);
+        onUpdate(detection.id, { volumeNumber: n !== null && Number.isFinite(n) ? n : null });
+      }}
+      inputMode="numeric"
+      placeholder="?"
+      aria-label="Volume number"
+      className="w-12 rounded-md border border-border bg-background px-1 py-1 text-center text-sm outline-none focus:border-accent"
+    />
   );
 }
 

@@ -21,6 +21,13 @@ export interface Edition {
   publisher: string | null;
   language: string | null;
   editionName: string | null;
+  /**
+   * Authoritative published volume count, when trustworthily known. NULL means
+   * unknown — the app must NOT infer it from catalog rows, owned count or AI
+   * sequence guesses. Lives on Edition because different editions of a series
+   * can have different volume counts.
+   */
+  totalVolumes: number | null;
 }
 
 export interface Volume {
@@ -48,30 +55,36 @@ export interface OwnedVolume {
 export type VolumeOwnership = "owned" | "missing";
 
 /**
- * A volume enriched with the current user's ownership state — the unit the
- * series detail grid renders.
+ * A *logical* volume (identified by its number, not a catalog row) enriched
+ * with the current user's ownership state — the unit the series detail grid
+ * renders. Duplicate catalog rows for the same number collapse into one.
  */
 export interface VolumeWithOwnership {
-  volume: Volume;
+  volumeNumber: number;
   owned: boolean;
   status: VolumeOwnership;
 }
 
 /**
- * Summary of one owned series for the library overview: enough to answer
- * "what do I own?" and "how complete is it?" at a glance.
+ * Summary of one owned series for the library overview.
+ *
+ * `ownedCount` counts DISTINCT logical volume numbers owned. `totalVolumes` is
+ * the authoritative published count or NULL when unknown. `missingCount` and
+ * `isComplete` are meaningful only when `totalVolumes` is known.
  */
 export interface SeriesSummary {
   series: Series;
   ownedCount: number;
-  totalCount: number;
-  missingCount: number;
+  totalVolumes: number | null;
+  missingCount: number | null;
+  isComplete: boolean;
 }
 
-/** A series together with its full, ownership-annotated volume list. */
+/** A series together with its logical, ownership-annotated volume list. */
 export interface SeriesDetail {
   series: Series;
   volumes: VolumeWithOwnership[];
   ownedCount: number;
-  totalCount: number;
+  totalVolumes: number | null;
+  isComplete: boolean;
 }
