@@ -79,28 +79,66 @@ describe("summarizeSeries (truthful completeness)", () => {
   });
 });
 
-describe("buildSeriesDetail (logical grid)", () => {
-  it("shows only known/owned numbers when the total is unknown", () => {
+describe("buildSeriesDetail (logical grid with gaps)", () => {
+  const num = (v: { volumeNumber: number }) => v.volumeNumber;
+
+  it("UNKNOWN total: fills gaps up to knownMax without claiming completeness", () => {
+    // The real Chobits case: owned 1,2,6,8, total unknown.
     const detail = buildSeriesDetail({
       series: SERIES,
-      ownedVolumeNumbers: [1, 2, 5],
-      catalogVolumeNumbers: [1, 2, 5],
+      ownedVolumeNumbers: [1, 2, 6, 8],
+      catalogVolumeNumbers: [1, 2, 6, 8],
       totalVolumes: null,
     });
-    expect(detail.volumes.map((v) => v.volumeNumber)).toEqual([1, 2, 5]);
-    expect(detail.volumes.every((v) => v.owned)).toBe(true);
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(detail.volumes.filter((v) => v.owned).map(num)).toEqual([1, 2, 6, 8]);
+    expect(detail.volumes.filter((v) => !v.owned).map(num)).toEqual([3, 4, 5, 7]);
+    expect(detail.knownMaxVolume).toBe(8);
+    expect(detail.missingInRange).toBe(4);
+    expect(detail.totalVolumes).toBeNull();
+    expect(detail.isComplete).toBe(false);
+    // Gap tiles are display-only placeholders, not catalog volumes.
+    for (const v of detail.volumes.filter((x) => !x.owned)) {
+      expect(v.knownCatalogVolume).toBe(false);
+    }
+  });
+
+  it("KNOWN total: same 1..total grid, gaps are authoritatively missing", () => {
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 2, 6, 8],
+      catalogVolumeNumbers: [1, 2, 6, 8],
+      totalVolumes: 8,
+    });
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(detail.volumes.filter((v) => !v.owned).map(num)).toEqual([3, 4, 5, 7]);
+    expect(detail.ownedCount).toBe(4);
+    expect(detail.totalVolumes).toBe(8);
+    expect(detail.missingInRange).toBe(4);
     expect(detail.isComplete).toBe(false);
   });
 
-  it("shows the full 1..total grid with missing slots when the total is known", () => {
+  it("KNOWN complete: fully owned known range is Complete with no missing", () => {
     const detail = buildSeriesDetail({
       series: SERIES,
-      ownedVolumeNumbers: [1, 2, 3],
-      catalogVolumeNumbers: [1, 2, 3],
-      totalVolumes: 5,
+      ownedVolumeNumbers: [1, 2, 3, 4],
+      catalogVolumeNumbers: [1, 2, 3, 4],
+      totalVolumes: 4,
     });
-    expect(detail.volumes.map((v) => v.volumeNumber)).toEqual([1, 2, 3, 4, 5]);
-    expect(detail.volumes.filter((v) => !v.owned).map((v) => v.volumeNumber)).toEqual([4, 5]);
+    expect(detail.isComplete).toBe(true);
+    expect(detail.missingInRange).toBe(0);
+  });
+
+  it("UNKNOWN contiguous: zero gaps but NEVER Complete", () => {
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 2, 3, 4],
+      catalogVolumeNumbers: [1, 2, 3, 4],
+      totalVolumes: null,
+    });
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4]);
+    expect(detail.missingInRange).toBe(0);
+    expect(detail.isComplete).toBe(false);
   });
 
   it("handles a single-volume known total (total_volumes >= 1)", () => {
@@ -110,7 +148,61 @@ describe("buildSeriesDetail (logical grid)", () => {
       catalogVolumeNumbers: [1],
       totalVolumes: 1,
     });
-    expect(detail.volumes).toEqual([{ volumeNumber: 1, owned: true, status: "owned" }]);
+    expect(detail.volumes).toEqual([
+      { volumeNumber: 1, owned: true, knownCatalogVolume: true, status: "owned" },
+    ]);
     expect(detail.isComplete).toBe(true);
+  });
+
+  it("INCONSISTENT total: owned beyond total is still shown, never Complete", () => {
+    // totalVolumes=8 but the user owns volume 9 (stale metadata).
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      catalogVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      totalVolumes: 8,
+    });
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(detail.totalVolumes).toBe(8); // unchanged, not promoted to 9
+    expect(detail.knownMaxVolume).toBe(9);
+    expect(detail.isComplete).toBe(false);
+  });
+
+  it("INCONSISTENT total: catalog knows volume 9 (unowned) beyond total=8", () => {
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8],
+      catalogVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      totalVolumes: 8,
+    });
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const vol9 = detail.volumes.find((v) => v.volumeNumber === 9);
+    expect(vol9?.owned).toBe(false);
+    expect(detail.isComplete).toBe(false);
+  });
+
+  it("CONSISTENT total: owned exactly 1..8 is unchanged and Complete", () => {
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8],
+      catalogVolumeNumbers: [1, 2, 3, 4, 5, 6, 7, 8],
+      totalVolumes: 8,
+    });
+    expect(detail.volumes.map(num)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(detail.missingInRange).toBe(0);
+    expect(detail.isComplete).toBe(true);
+  });
+
+  it("defensively degrades to known numbers when data implies an absurd range", () => {
+    const detail = buildSeriesDetail({
+      series: SERIES,
+      ownedVolumeNumbers: [1, 99999], // bad imported number
+      catalogVolumeNumbers: [1, 99999],
+      totalVolumes: null,
+    });
+    // Does NOT render ~100k placeholder tiles.
+    expect(detail.volumes.map(num)).toEqual([1, 99999]);
+    expect(detail.volumes.length).toBe(2);
+    expect(detail.knownMaxVolume).toBe(99999);
   });
 });

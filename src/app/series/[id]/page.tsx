@@ -15,9 +15,8 @@ export default async function SeriesPage({
 
   if (!detail) notFound();
 
-  const { series, volumes, ownedCount, totalVolumes, isComplete } = detail;
+  const { series, volumes, ownedCount, totalVolumes, missingInRange, isComplete } = detail;
   const known = totalVolumes !== null;
-  const missingCount = known ? totalVolumes - ownedCount : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -27,27 +26,32 @@ export default async function SeriesPage({
 
       <header>
         <h1 className="text-2xl font-bold">{series.title}</h1>
-        <p className="mt-2 text-sm text-muted">
-          {known ? (
-            <>
-              <span className="font-semibold text-foreground">
-                {ownedCount} / {totalVolumes}
-              </span>{" "}
-              volumes
-              {isComplete ? (
-                <span style={{ color: "var(--owned)" }}> · Complete</span>
-              ) : (
-                missingCount !== null && missingCount > 0 && ` · ${missingCount} missing`
-              )}
-            </>
-          ) : (
-            <>
+        {known ? (
+          <p className="mt-2 text-sm text-muted">
+            <span className="font-semibold text-foreground">
+              {ownedCount} / {totalVolumes}
+            </span>{" "}
+            volumes
+            {isComplete ? (
+              <span style={{ color: "var(--owned)" }}> · Complete</span>
+            ) : (
+              missingInRange > 0 && ` · ${missingInRange} missing`
+            )}
+          </p>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-muted">
               <span className="font-semibold text-foreground">{ownedCount}</span>{" "}
               {ownedCount === 1 ? "volume" : "volumes"} owned
               <span className="text-muted"> · total unknown</span>
-            </>
-          )}
-        </p>
+            </p>
+            <p className="mt-0.5 text-xs text-muted">
+              {missingInRange > 0
+                ? `${missingInRange} ${missingInRange === 1 ? "gap" : "gaps"} in known range`
+                : "No gaps in known range"}
+            </p>
+          </>
+        )}
       </header>
 
       {volumes.length === 0 ? (
@@ -57,18 +61,18 @@ export default async function SeriesPage({
       ) : (
         <>
           <VolumeGrid volumes={volumes} />
-          <Legend />
+          <Legend knownTotal={known} />
         </>
       )}
     </div>
   );
 }
 
-function Legend() {
+function Legend({ knownTotal }: { knownTotal: boolean }) {
   return (
     <div className="flex flex-wrap gap-4 text-xs text-muted">
       <LegendItem color="var(--owned)" label="Owned" />
-      <LegendItem color="var(--missing)" label="Missing" dashed />
+      <LegendItem color="var(--missing)" label={knownTotal ? "Missing" : "Not owned (gap)"} dashed />
     </div>
   );
 }

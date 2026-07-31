@@ -58,10 +58,15 @@ export type VolumeOwnership = "owned" | "missing";
  * A *logical* volume (identified by its number, not a catalog row) enriched
  * with the current user's ownership state — the unit the series detail grid
  * renders. Duplicate catalog rows for the same number collapse into one.
+ *
+ * `knownCatalogVolume` distinguishes a real owned/catalogued number from a
+ * DISPLAY-ONLY placeholder that fills a gap in the sequence (these do not
+ * correspond to any catalog row and are never persisted).
  */
 export interface VolumeWithOwnership {
   volumeNumber: number;
   owned: boolean;
+  knownCatalogVolume: boolean;
   status: VolumeOwnership;
 }
 
@@ -86,5 +91,17 @@ export interface SeriesDetail {
   volumes: VolumeWithOwnership[];
   ownedCount: number;
   totalVolumes: number | null;
+  /**
+   * Highest known positive volume number (owned or in catalog), or null when
+   * nothing is known. NEVER treat this as the series total — it is only the top
+   * of the displayed range when the authoritative total is unknown.
+   */
+  knownMaxVolume: number | null;
+  /**
+   * Count of unowned tiles in the displayed range. When `totalVolumes` is
+   * known these are authoritatively missing volumes; when it is null these are
+   * only gaps in the known range.
+   */
+  missingInRange: number;
   isComplete: boolean;
 }

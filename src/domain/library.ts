@@ -44,7 +44,14 @@ export function summarizeSeries(input: SeriesLogicalInput): SeriesSummary {
   const owned = toNumberSet(input.ownedVolumeNumbers);
   const total = input.totalVolumes;
 
-  const isComplete = total !== null && ownedWithinTotal(owned, total) === total;
+  // Same consistency guard as buildSeriesDetail: don't claim completeness when
+  // known volumes exceed a stale authoritative total.
+  const known = new Set<number>([...owned, ...toNumberSet(input.catalogVolumeNumbers)]);
+  const knownMax = known.size > 0 ? Math.max(...known) : null;
+  const consistentTotal = total === null || knownMax === null || knownMax <= total;
+
+  const isComplete =
+    total !== null && consistentTotal && ownedWithinTotal(owned, total) === total;
   const missingCount = total !== null ? total - ownedWithinTotal(owned, total) : null;
 
   return {
@@ -57,36 +64,72 @@ export function summarizeSeries(input: SeriesLogicalInput): SeriesSummary {
 }
 
 /**
- * Build the series detail (logical volume grid).
- *  - Known total  → show 1..total, owned/missing.
- *  - Unknown total → show only the known/owned numbers (no fabricated missing
- *    slots, no implied completeness).
+ * Defensive cap on how many contiguous tiles the grid will generate. Real
+ * manga series stay well under this (the longest run into the low hundreds of
+ * volumes), so this only trips on bad imported data (e.g. a mistaken volume
+ * number like 99999). Beyond the cap we degrade to showing just the known
+ * numbers rather than rendering thousands of placeholder tiles.
+ */
+export const MAX_DISPLAY_VOLUMES = 1000;
+
+/**
+ * Build the series detail (logical volume grid), filling gaps in the numeric
+ * sequence with DISPLAY-ONLY placeholders so the user can see holes.
+ *
+ *  - Known total   → range 1..total; unowned tiles are authoritatively missing.
+ *  - Unknown total → range 1..knownMax (highest owned/catalogued number);
+ *    unowned tiles are only GAPS in the known range. knownMax is NEVER treated
+ *    as the series total, so completeness is never implied.
+ *
+ * Placeholder tiles do not correspond to catalog rows and are never persisted.
  */
 export function buildSeriesDetail(input: SeriesLogicalInput): SeriesDetail {
   const owned = toNumberSet(input.ownedVolumeNumbers);
+  const catalog = toNumberSet(input.catalogVolumeNumbers);
   const total = input.totalVolumes;
 
+  const known = new Set<number>([...owned, ...catalog]);
+  const knownMaxVolume = known.size > 0 ? Math.max(...known) : null;
+
+  // Upper bound of the contiguous display range. Always covers known data:
+  // if stale/inconsistent metadata says total=8 but volume 9 is owned/known,
+  // we still render through 9 rather than hiding it.
+  const upper = Math.max(total ?? 0, knownMaxVolume ?? 0);
+
   let numbers: number[];
-  if (total !== null) {
-    numbers = Array.from({ length: total }, (_, i) => i + 1);
+  if (upper > MAX_DISPLAY_VOLUMES) {
+    // Bad data: don't fabricate a huge range — show only the known numbers.
+    numbers = [...known].sort((a, b) => a - b);
   } else {
-    numbers = [...toNumberSet([...input.catalogVolumeNumbers, ...owned])].sort(
-      (a, b) => a - b,
-    );
+    numbers = Array.from({ length: upper }, (_, i) => i + 1);
   }
 
   const volumes: VolumeWithOwnership[] = numbers.map((volumeNumber) => {
     const isOwned = owned.has(volumeNumber);
-    return { volumeNumber, owned: isOwned, status: isOwned ? "owned" : "missing" };
+    return {
+      volumeNumber,
+      owned: isOwned,
+      knownCatalogVolume: isOwned || catalog.has(volumeNumber),
+      status: isOwned ? "owned" : "missing",
+    };
   });
 
-  const isComplete = total !== null && ownedWithinTotal(owned, total) === total;
+  // Completeness requires a known total that is CONSISTENT with the data: if
+  // known volumes exceed the authoritative total, the metadata is stale and we
+  // never claim completeness (nor promote knownMax to the new total).
+  const consistentTotal =
+    total === null || knownMaxVolume === null || knownMaxVolume <= total;
+  const isComplete =
+    total !== null && consistentTotal && ownedWithinTotal(owned, total) === total;
+  const missingInRange = volumes.reduce((n, v) => (v.owned ? n : n + 1), 0);
 
   return {
     series: input.series,
     volumes,
     ownedCount: owned.size,
     totalVolumes: total,
+    knownMaxVolume,
+    missingInRange,
     isComplete,
   };
 }
