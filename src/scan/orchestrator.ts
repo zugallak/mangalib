@@ -48,12 +48,16 @@ export async function runScan(input: ScanInput, deps: RunScanDeps): Promise<Mang
       });
       throw primaryErr;
     }
+    const primaryTechnical = primaryErr as ScanTechnicalError;
     logger({
       provider: primary.name,
       success: false,
       fallbackTriggered: true,
       latencyMs: Math.round(now() - primaryStart),
-      errorCategory: (primaryErr as ScanTechnicalError).category,
+      errorCategory: primaryTechnical.category,
+      errorStatus: primaryTechnical.status,
+      errorCode: primaryTechnical.code,
+      errorDetail: primaryTechnical.message,
     });
 
     const fallbackStart = now();
@@ -68,12 +72,16 @@ export async function runScan(input: ScanInput, deps: RunScanDeps): Promise<Mang
       });
       return { provider: fallback.name, detections };
     } catch (fallbackErr) {
+      const fallbackTechnical = isScanTechnicalError(fallbackErr) ? fallbackErr : null;
       logger({
         provider: fallback.name,
         success: false,
         fallbackTriggered: true,
         latencyMs: Math.round(now() - fallbackStart),
-        errorCategory: isScanTechnicalError(fallbackErr) ? fallbackErr.category : "unknown",
+        errorCategory: fallbackTechnical?.category ?? "unknown",
+        errorStatus: fallbackTechnical?.status,
+        errorCode: fallbackTechnical?.code,
+        errorDetail: fallbackTechnical?.message,
       });
       throw new ScanUnavailableError();
     }

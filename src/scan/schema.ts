@@ -6,11 +6,11 @@ import type { RawMangaDetection } from "@/domain/scan";
  * Single source of truth for the provider output shape:
  *  - `rawDetectionSchema` validates parsed JSON server-side (never trust raw
  *    model output).
- *  - `OPENAI_JSON_SCHEMA` / `geminiResponseSchema` express the same shape in
- *    each SDK's structured-output format.
+ *  - `SCAN_GEMINI_JSON_SCHEMA` / `OPENAI_JSON_SCHEMA` express the same shape in
+ *    each SDK's structured-output format, both as standard JSON Schema.
  *
- * All fields are required + nullable so strict structured-output modes are
- * satisfied while still allowing "unknown".
+ * Nullability uses proper JSON Schema semantics (`type: [T, "null"]`) rather
+ * than the legacy Gemini-native `{ nullable: true }` representation.
  */
 export const rawDetectionSchema = z.object({
   seriesTitle: z.string(),
@@ -33,10 +33,51 @@ export function toRawDetections(parsed: ParsedScanResponse): RawMangaDetection[]
   return parsed.detections;
 }
 
+// Shared JSON Schema building blocks (kept in sync across providers).
+const detectionProperties = {
+  seriesTitle: { type: "string" },
+  volumeNumber: { type: ["integer", "null"] },
+  publisher: { type: ["string", "null"] },
+  editionHint: { type: ["string", "null"] },
+  confidence: { type: "number" },
+  rawLabel: { type: ["string", "null"] },
+  notes: { type: ["string", "null"] },
+} as const;
+
+const detectionRequired = [
+  "seriesTitle",
+  "volumeNumber",
+  "publisher",
+  "editionHint",
+  "confidence",
+  "rawLabel",
+  "notes",
+] as const;
+
 /**
- * OpenAI Structured Outputs JSON Schema. Strict mode requires every property
- * to be listed in `required` and `additionalProperties: false`. Nullability is
- * expressed via `type: [T, "null"]`.
+ * Gemini structured output. Passed via `responseJsonSchema` (current, standard
+ * JSON Schema) — the SDK forwards it as-is, no legacy `Type`/`nullable`
+ * conversion. `additionalProperties` is omitted (Gemini is strict about its
+ * supported JSON Schema subset).
+ */
+export const SCAN_GEMINI_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    detections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: detectionProperties,
+        required: detectionRequired,
+      },
+    },
+  },
+  required: ["detections"],
+} as const;
+
+/**
+ * OpenAI Structured Outputs JSON Schema. Strict mode requires every property in
+ * `required` and `additionalProperties: false`.
  */
 export const OPENAI_JSON_SCHEMA = {
   name: "manga_scan",
@@ -50,24 +91,8 @@ export const OPENAI_JSON_SCHEMA = {
         items: {
           type: "object",
           additionalProperties: false,
-          properties: {
-            seriesTitle: { type: "string" },
-            volumeNumber: { type: ["integer", "null"] },
-            publisher: { type: ["string", "null"] },
-            editionHint: { type: ["string", "null"] },
-            confidence: { type: "number" },
-            rawLabel: { type: ["string", "null"] },
-            notes: { type: ["string", "null"] },
-          },
-          required: [
-            "seriesTitle",
-            "volumeNumber",
-            "publisher",
-            "editionHint",
-            "confidence",
-            "rawLabel",
-            "notes",
-          ],
+          properties: detectionProperties,
+          required: detectionRequired,
         },
       },
     },

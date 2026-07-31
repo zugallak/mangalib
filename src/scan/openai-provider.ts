@@ -4,7 +4,7 @@ import OpenAI from "openai";
 
 import type { RawMangaDetection, ScanInput, ScanProvider } from "@/domain/scan";
 import { OPENAI_MODEL, OPENAI_TIMEOUT_MS } from "@/scan/config";
-import { ScanTechnicalError, withTimeout } from "@/scan/errors";
+import { ScanTechnicalError, classifyProviderError, withTimeout } from "@/scan/errors";
 import { SCAN_SYSTEM_PROMPT } from "@/scan/prompt";
 import { OPENAI_JSON_SCHEMA, scanResponseSchema, toRawDetections } from "@/scan/schema";
 
@@ -14,16 +14,6 @@ function getApiKey(): string {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new ScanTechnicalError(PROVIDER, "refused", "OPENAI_API_KEY is not set");
   return key;
-}
-
-function toTechnicalError(err: unknown): ScanTechnicalError {
-  if (err instanceof ScanTechnicalError) return err;
-  const status =
-    typeof err === "object" && err !== null && "status" in err
-      ? Number((err as { status?: unknown }).status)
-      : undefined;
-  const category = status === 429 ? "rate_limit" : status && status >= 500 ? "network" : "unknown";
-  return new ScanTechnicalError(PROVIDER, category, "OpenAI request failed");
 }
 
 export const openaiScanProvider: ScanProvider = {
@@ -54,7 +44,7 @@ export const openaiScanProvider: ScanProvider = {
       );
       text = completion.choices[0]?.message?.content ?? "";
     } catch (err) {
-      throw toTechnicalError(err);
+      throw classifyProviderError(PROVIDER, err);
     }
 
     return parseResponse(text);

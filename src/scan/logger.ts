@@ -11,6 +11,12 @@ export interface ScanLogEvent {
   latencyMs: number;
   detectionCount?: number;
   errorCategory?: string;
+  /** HTTP status when the failure was an API response. */
+  errorStatus?: number;
+  /** SDK/API error code (e.g. "insufficient_quota", "ENOTFOUND", "NOT_FOUND"). */
+  errorCode?: string;
+  /** Short, sanitized reason — never contains keys, request bodies or images. */
+  errorDetail?: string;
 }
 
 export type ScanLogger = (event: ScanLogEvent) => void;
