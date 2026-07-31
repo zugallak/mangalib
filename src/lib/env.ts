@@ -9,12 +9,20 @@
 export const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
 /**
- * The public client key. This variable accepts either the legacy anon JWT or
- * the newer Supabase publishable key (`sb_publishable_…`) — both are safe to
- * expose to the browser and are consumed the same way by @supabase/ssr. The
- * variable name is kept as ANON_KEY for compatibility rather than renamed.
+ * The public client key. Both the legacy anon JWT and the newer Supabase
+ * publishable key (`sb_publishable_…`) are safe to expose to the browser and
+ * are consumed the same way by @supabase/ssr.
+ *
+ * We accept either env var name: `NEXT_PUBLIC_SUPABASE_ANON_KEY` (our own
+ * convention) or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (the name the Supabase
+ * Vercel integration provisions). `||` (not `??`) so an empty string also
+ * falls through to the next candidate. Both must be referenced statically so
+ * Next.js can inline them into the client bundle.
  */
-export const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+export const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  "";
 
 /**
  * True when the public Supabase configuration is present. Used to let the
